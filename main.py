@@ -106,6 +106,7 @@ def home():
     return "Bot is running!"
 
 # 5. WSGI 호환 및 비동기 멀티 구동 핵심 설정
+
 def create_app():
     TOKEN = os.getenv('DISCORD_TOKEN')
     
@@ -113,7 +114,6 @@ def create_app():
         print("❌ 에러: DISCORD_TOKEN 환경 변수를 찾을 수 없습니다. .env 파일이나 Render 설정을 확인하세요.")
         return app
 
-    # Gunicorn 환경에서 디스코드 비동기 태스크를 안전하게 여는 통합 구동 함수
     async def run_bot_async():
         try:
             print("🚀 디스코드 봇 연결 시도 중...")
@@ -121,14 +121,21 @@ def create_app():
         except Exception as e:
             print(f"❌ 봇 구동 중 에러 발생: {e}")
 
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
+    # Gunicorn 프로세스가 완전히 자리를 잡은 후 루프가 끊기지 않도록 백그라운드로 안전하게 던집니다.
+    def start_loop():
+        # 독립적인 새 비동기 이벤트 루프 생성 보장
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        loop.create_task(run_bot_async())
+        loop.run_forever()
 
-    loop.create_task(run_bot_async())
+    # Flask 서버와 별개로 완전히 독립된 스레드 영역에 디스코드 루프 구동
+    from threading import Thread
+    bot_thread = Thread(target=start_loop, daemon=True)
+    bot_thread.start()
+    
     return app
 
 # Gunicorn 배포용 진입점 변수 지정
 wsgi_app = create_app()
+
