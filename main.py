@@ -1,8 +1,8 @@
 import os
+import asyncio
 import discord
 from discord.ext import commands
 from flask import Flask
-from threading import Thread
 from dotenv import load_dotenv
 
 # .env 파일 로드 (로컬 테스트용)
@@ -98,20 +98,40 @@ app = Flask('')
 def home():
     return "Bot is running!"
 
-def run_flask():
-    # 📌 Render가 부여하는 동적 포트를 할당받고, 없으면 8080을 씁니다.
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+# 5. WSGI 호환 및 비동기 멀티 구동 핵심 설정
+# Gunicorn이 이 함수를 호출하여 Flask와 봇을 하나의 루프 안에서 동시에 띄웁니다.
+def create_app():
+    TOKEN = os.getenv('DISCORD_TOKEN')
+    
+    if not TOKEN:
+        print("❌ 에러: DISCORD_TOKEN 환경 변수를 찾을 수 없습니다. .env 파일이나 Render 설정을 확인하세요.")
+        return app
 
-# Flask 웹 서버를 백그라운드 스레드에서 구동
-flask_thread = Thread(target=run_flask, daemon=True)
-flask_thread.start()
+    # 비동기 실행 루프 안에서 디스코드 봇을 안전하게 실행하는 백그라운드 태스크 등록
+    @app.before_all_requests
+    async def start_bot_once():
+        # 이미 봇 루프가 활성화되어 있거나 로그인 중이면 무시
+        if bot.is_ready() or bot.loop.is_running():
+            return
+            
+    # Gunicorn 환경에서 디스코드 비동기 태스크를 안전하게 여는 통합 구동 함수
+    async def run_bot_async():
+        try:
+            print("🚀 디스코드 봇 연결 시도 중...")
+            await bot.start(TOKEN)
+        except Exception as e:
+            print(f"❌ 봇 구동 중 에러 발생: {e}")
 
-# 5. 봇 기동 (토큰은 환경 변수에서 안전하게 가져옴)
-# 📌 로컬 환경 변수나 Render 대시보드 환경 변수에 'DISCORD_TOKEN' 이름으로 토큰을 넣으세요.
-TOKEN = os.getenv('DISCORD_TOKEN')
+    try:
+        # 현재 활성화된 이벤트 루프를 찾거나 새로 만듬
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
-if TOKEN:
-    bot.run(TOKEN)
-else:
-    print("❌ 에러: DISCORD_TOKEN 환경 변수를 찾을 수 없습니다. .env 파일이나 Render 설정을 확인하세요.")
+    # 이벤트 루프에 디스코드 봇 태스크를 던져서 Flask와 독립적으로 병렬 처리되게 함
+    loop.create_task(run_bot_async())
+    return app
+
+# Gunicorn 배포용 진입점 변수 지정
+wsgi_app = create_app()
