@@ -45,12 +45,19 @@ async def today_schedule(ctx):
     try_list = []
 
     try:
-        # 📌 channel.threads 대신 실시간 활성화된 스레드를 비동기로 안전하게 긁어옵니다.
-        active_threads_response = await channel.active_threads()
-        threads_list = active_threads_response.threads
+        # 📌 [서버 최적화] 라이브러리 캐시와 실시간 서버 활성 스레드를 병합하여 누락을 원천 차단합니다.
+        threads_list = list(channel.threads)
+        
+        # 해당 서버(Guild) 전체의 실시간 활성 스레드 목록을 강제 요청하여 포럼 채널 대상만 필터링합니다.
+        guild_active_threads = await ctx.guild.active_threads()
+        for thread in guild_active_threads.threads:
+            if thread.parent_id == FORUM_CHANNEL_ID and thread not in threads_list:
+                threads_list.append(thread)
+                
     except Exception as e:
         print(f"❌ 스레드 목록 가져오기 실패: {e}")
-        await ctx.send("❌ 포럼 채널의 게시글 목록을 불러오지 못했습니다.")
+        # 어떤 문제 때문에 실패했는지 원인을 상세히 알 수 있도록 출력문을 강화했습니다.
+        await ctx.send(f"❌ 포럼 채널의 게시글 목록을 불러오지 못했습니다. (원인: {e})")
         return
 
     # 📌 포스트들을 '제목(이름) 순'으로 정렬 (가나다/ABC 오름차순)
@@ -99,7 +106,6 @@ def home():
     return "Bot is running!"
 
 # 5. WSGI 호환 및 비동기 멀티 구동 핵심 설정
-# Gunicorn이 이 함수를 호출하여 Flask와 봇을 하나의 루프 안에서 동시에 띄웁니다.
 def create_app():
     TOKEN = os.getenv('DISCORD_TOKEN')
     
@@ -107,13 +113,6 @@ def create_app():
         print("❌ 에러: DISCORD_TOKEN 환경 변수를 찾을 수 없습니다. .env 파일이나 Render 설정을 확인하세요.")
         return app
 
-    # 비동기 실행 루프 안에서 디스코드 봇을 안전하게 실행하는 백그라운드 태스크 등록
-    @app.before_all_requests
-    async def start_bot_once():
-        # 이미 봇 루프가 활성화되어 있거나 로그인 중이면 무시
-        if bot.is_ready() or bot.loop.is_running():
-            return
-            
     # Gunicorn 환경에서 디스코드 비동기 태스크를 안전하게 여는 통합 구동 함수
     async def run_bot_async():
         try:
@@ -123,13 +122,11 @@ def create_app():
             print(f"❌ 봇 구동 중 에러 발생: {e}")
 
     try:
-        # 현재 활성화된 이벤트 루프를 찾거나 새로 만듬
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-    # 이벤트 루프에 디스코드 봇 태스크를 던져서 Flask와 독립적으로 병렬 처리되게 함
     loop.create_task(run_bot_async())
     return app
 
