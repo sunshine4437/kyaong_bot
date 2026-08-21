@@ -3,6 +3,7 @@ import asyncio
 import discord
 from discord.ext import commands
 from flask import Flask
+from threading import Thread
 from dotenv import load_dotenv
 
 # .env 파일 로드 (로컬 테스트용)
@@ -24,7 +25,6 @@ async def today_schedule(ctx):
     FORUM_CHANNEL_ID = 1467848861681979476  # 실제 일정 포럼 채널 ID
 
     try:
-        # 디스코드 API 서버에서 포럼 채널 정보 실시간 원격 요청
         channel = await bot.fetch_channel(FORUM_CHANNEL_ID)
     except discord.NotFound:
         await ctx.send("❌ 지정된 채널 ID를 찾을 수 없습니다.")
@@ -37,23 +37,19 @@ async def today_schedule(ctx):
         await ctx.send("❌ 지정된 채널 ID가 포럼 채널이 아닙니다.")
         return
 
-    # 리스트 객체 생성
     schedule_list = []
     apply_list = []
     try_list = []
 
     try:
-        # 📌 캐시 스레드 목록 기본 가져오기
         threads_list = list(channel.threads)
-        
-        # 📌 활성 스레드 리스트 원격 조회 (최신 discord.py 데이터 타입 유연하게 방어)
         active_threads_response = await ctx.guild.active_threads()
+        
         if hasattr(active_threads_response, 'threads'):
             raw_threads = active_threads_response.threads
         else:
             raw_threads = active_threads_response
 
-        # 📌 내 포럼 채널에 속해있는 글(스레드)들만 필터링
         for thread in raw_threads:
             if thread.parent_id == FORUM_CHANNEL_ID and thread not in threads_list:
                 threads_list.append(thread)
@@ -62,14 +58,11 @@ async def today_schedule(ctx):
         await ctx.send(f"❌ 포럼 채널의 게시글 목록을 불러오지 못했습니다. (원인: {e})")
         return
 
-    # 📌 포스트들을 '제목(이름) 순'으로 정렬 (가나다/ABC 오름차순)
     sorted_threads = sorted(threads_list, key=lambda t: t.name)
 
-    # 정렬된 포스트 목록 순회 및 조건 분류
     for thread in sorted_threads:
         clean_name = thread.name.replace(" ", "").lower()
 
-        # 📌 키워드 매칭 규칙 적용
         if "[캬옹][상시모집]" in clean_name:
             apply_list.append(f"<#{thread.id}>")
         elif "[캬옹]" in clean_name and "트라이" in clean_name:
@@ -77,7 +70,6 @@ async def today_schedule(ctx):
         elif "완" not in clean_name and "마감" not in clean_name:
             schedule_list.append(f"<#{thread.id}>")
 
-    # 3. 💡 메시지 조립
     schedules = "\n".join(schedule_list) if schedule_list else "ㆍ 진행 중인 일정이 없습니다."
     applies = "\n".join(apply_list) if apply_list else "ㆍ 신청 중인 일정이 없습니다."
     tries = "\n".join(try_list) if try_list else "ㆍ 진행 중인 트라이가 없습니다."
@@ -98,36 +90,39 @@ async def today_schedule(ctx):
 
     await ctx.send(response)
 
-# 4. 웹 서버 설정 (Render 24시간 호스팅용 웹 서버)
+# 3. 웹 서버 설정 (Render 24시간 호스팅용 웹 서버)
 app = Flask('')
 
 @app.route('/')
 def home():
     return "Bot is running!"
 
-# 5. 🛠️ 스레드 없이 Gunicorn이 실행될 때 Flask와 봇을 동시에 깨우는 정석 진입점
-def create_app():
+# 4. 🛠️ Gunicorn 워커 생명주기에 종속되지 않는 무적의 구동 함수
+def start_discord_loop():
     TOKEN = os.getenv('DISCORD_TOKEN')
     if not TOKEN:
-        print("❌ 에러: DISCORD_TOKEN 환경 변수를 찾을 수 없습니다.")
-        return app
+        print("❌ 에러: DISCORD_TOKEN 환경 변수가 없습니다.")
+        return
 
-    # Gunicorn 프로세스가 최초 구동될 때 디스코드 봇을 비동기 백그라운드로 예약합니다.
-    async def run_bot_async():
-        try:
-            print("🚀 디스코드 봇 연결 시도 중...")
-            await bot.start(TOKEN)
-        except Exception as e:
-            print(f"❌ 봇 구동 중 에러 발생: {e}")
-
+    # 완전히 격리된 새 이벤트 루프를 생성하여 스레드 독립성을 확보합니다.
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    print("🚀 독립 스레드에서 디스코드 봇 로그인 시도 중...")
     try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        loop.run_until_complete(bot.start(TOKEN))
+    except Exception as e:
+        print(f"❌ 봇 시작 실패: {e}")
 
-    loop.create_task(run_bot_async())
-    return app
+# 5. Flask 웹 요청 세션이 최초 활성화될 때 딱 한 번만 스레드를 실행하는 장치
+# (Gunicorn이 포트 감지 후 재부팅해도 중복 실행되지 않고 안전하게 살아남습니다.)
+is_bot_started = False
 
-# Gunicorn 배포용 진입점 변수 선언
-wsgi_app = create_app()
+@app.before_request
+def initialize_bot_process():
+    global is_bot_started
+    if not is_bot_started:
+        is_bot_started = True
+        # 백그라운드가 아닌 별도 프로세스 스레드로 구동하여 메인 루프 차단을 우회합니다.
+        t = Thread(target=start_discord_loop, daemon=True)
+        t.start()
