@@ -13,68 +13,69 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+# 2. 🔥 [!오늘의캬옹] / [!오캬] 명령어 등록 함수
+def setup_bot():
+    bot_obj = commands.Bot(command_prefix="!", intents=intents)
 
-@bot.event
-async def on_ready():
-    print(f"🤖 캬옹 일정 관리 봇 로그인 완료: {bot.user.name}")
+    @bot_obj.event
+    async def on_ready():
+        print(f"🤖 캬옹 일정 관리 봇 로그인 완료: {bot_obj.user.name}")
 
-# 2. 🔥 [!오늘의캬옹] / [!오캬] 명령어
-@bot.command(name="오늘의캬옹", aliases=["오캬"])
-async def today_schedule(ctx):
-    FORUM_CHANNEL_ID = 1467848861681979476  # 실제 일정 포럼 채널 ID
+    @bot_obj.command(name="오늘의캬옹", aliases=["오캬"])
+    async def today_schedule(ctx):
+        FORUM_CHANNEL_ID = 1467848861681979476  # 실제 일정 포럼 채널 ID
 
-    try:
-        channel = await bot.fetch_channel(FORUM_CHANNEL_ID)
-    except discord.NotFound:
-        await ctx.send("❌ 지정된 채널 ID를 찾을 수 없습니다.")
-        return
-    except discord.Forbidden:
-        await ctx.send("❌ 봇이 해당 채널을 볼 수 있는 권한이 없습니다.")
-        return
+        try:
+            channel = await ctx.bot.fetch_channel(FORUM_CHANNEL_ID)
+        except discord.NotFound:
+            await ctx.send("❌ 지정된 채널 ID를 찾을 수 없습니다.")
+            return
+        except discord.Forbidden:
+            await ctx.send("❌ 봇이 해당 채널을 볼 수 있는 권한이 없습니다.")
+            return
 
-    if not isinstance(channel, discord.ForumChannel):
-        await ctx.send("❌ 지정된 채널 ID가 포럼 채널이 아닙니다.")
-        return
+        if not isinstance(channel, discord.ForumChannel):
+            await ctx.send("❌ 지정된 채널 ID가 포럼 채널이 아닙니다.")
+            return
 
-    schedule_list = []
-    apply_list = []
-    try_list = []
+        schedule_list = []
+        apply_list = []
+        try_list = []
 
-    try:
-        threads_list = list(channel.threads)
-        active_threads_response = await ctx.guild.active_threads()
+        try:
+            threads_list = list(channel.threads)
+            active_threads_response = await ctx.guild.active_threads()
 
-        if hasattr(active_threads_response, 'threads'):
-            raw_threads = active_threads_response.threads
-        else:
-            raw_threads = active_threads_response
+            if hasattr(active_threads_response, 'threads'):
+                raw_threads = active_threads_response.threads
+            else:
+                raw_threads = active_threads_response
 
-        for thread in raw_threads:
-            if thread.parent_id == FORUM_CHANNEL_ID and thread not in threads_list:
-                threads_list.append(thread)
+            for thread in raw_threads:
+                if thread.parent_id == FORUM_CHANNEL_ID and thread not in threads_list:
+                    threads_list.append(thread)
 
-    except Exception as e:
-        await ctx.send(f"❌ 포럼 채널의 게시글 목록을 불러오지 못했습니다. (원인: {e})")
-        return
+        except Exception as e:
+            await ctx.send(f"❌ 포럼 채널의 게시글 목록을 불러오지 못했습니다. (원인: {e})")
+            return
 
-    sorted_threads = sorted(threads_list, key=lambda t: t.name)
+        sorted_threads = sorted(threads_list, key=lambda t: t.name)
 
-    for thread in sorted_threads:
-        clean_name = thread.name.replace(" ", "").lower()
+        for thread in sorted_threads:
+            clean_name = thread.name.replace(" ", "").lower()
 
-        if "[캬옹][상시모집]" in clean_name:
-            apply_list.append(f"<#{thread.id}>")
-        elif "[캬옹]" in clean_name and "트라이" in clean_name:
-            try_list.append(f"<#{thread.id}>")
-        elif "완" not in clean_name and "마감" not in clean_name:
-            schedule_list.append(f"<#{thread.id}>")
+            if "[캬옹][상시모집]" in clean_name:
+                apply_list.append(f"<#{thread.id}>")
+            elif "[캬옹]" in clean_name and "트라이" in clean_name:
+                try_list.append(f"<#{thread.id}>")
+            elif "완" not in clean_name and "마감" not in clean_name:
+                schedule_list.append(f"<#{thread.id}>")
 
-    schedules = "\n".join(schedule_list) if schedule_list else "ㆍ 진행 중인 일정이 없습니다."
-    applies = "\n".join(apply_list) if apply_list else "ㆍ 신청 중인 일정이 없습니다."
-    tries = "\n".join(try_list) if try_list else "ㆍ 진행 중인 트라이가 없습니다."
+        schedules = "\n".join(schedule_list) if schedule_list else "ㆍ 진행 중인 일정이 없습니다."
+        applies = "\n".join(apply_list) if apply_list else "ㆍ 신청 중인 일정이 없습니다."
+        tries = "\n".join(try_list) if try_list else "ㆍ 진행 중인 트라이가 없습니다."
 
-    response = f"""**<오늘의 캬옹>**
+        response = f"""**<오늘의 캬옹>**
 
 <:aeromancer_3:1534374208002461766> **일정**
 {schedules}
@@ -88,7 +89,9 @@ async def today_schedule(ctx):
 다들 많관부! <#1467848861681979476> 사용은 자유롭게! 양식무관! 누구나!
 문의사항은 연락주세요 <:artist_3:1534374268132135053>"""
 
-    await ctx.send(response)
+        await ctx.send(response)
+
+    return bot_obj
 
 # 3. 비동기 웹 서버 (Render 헬스체크용 aiohttp)
 async def handle_ping(request):
@@ -104,21 +107,23 @@ async def start_web_server():
     await site.start()
     print(f"🌐 웹 서버가 포트 {port}에서 정상 시작되었습니다.")
 
-# 4. 단일 비동기 루프 실행 (웹 서버 + 디스코드 봇)
+# 4. 세션 자원 관리가 적용된 메인 루프
 async def main():
     TOKEN = os.getenv('DISCORD_TOKEN')
     if not TOKEN:
         print("❌ 에러: DISCORD_TOKEN 환경 변수가 없습니다.")
         return
 
-    # 웹 서버 먼저 구동
+    # 웹 서버 구동
     await start_web_server()
 
     # 디스코드 봇 로그인 및 자동 재시도 루프
     while True:
+        bot = setup_bot()
         try:
             print("🚀 디스코드 봇 로그인 시도 중...")
-            await bot.start(TOKEN)
+            async with bot:
+                await bot.start(TOKEN)
         except discord.errors.HTTPException as e:
             if e.status == 429:
                 retry_after = getattr(e, 'retry_after', 60)
