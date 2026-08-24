@@ -119,9 +119,9 @@ async def main():
                 await bot.start(TOKEN)
         except discord.errors.HTTPException as e:
             if e.status == 429:
-                retry_after = getattr(e, 'retry_after', 60)
-                wait_time = int(retry_after) + 5
-                print(f"⚠️ 디스코드 API 차단(429 Rate Limit) 발생. {wait_time}초 후 재시도합니다...", flush=True)
+                # 30분(1800초) 대기 후 재시도
+                wait_time = 1800
+                print(f"⚠️ 디스코드 API 차단(429 Rate Limit) 발생. {wait_time // 60}분 후 재시도합니다...", flush=True)
                 await asyncio.sleep(wait_time)
             else:
                 print(f"❌ HTTP 오류 발생: {e}", flush=True)
