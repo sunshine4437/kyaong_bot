@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 # .env 파일 로드 (로컬 테스트용)
 load_dotenv()
 
-# 1. 봇 권한 및 접두사 세팅
+# 1. 봇 권한 세팅
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
@@ -18,10 +18,12 @@ intents.guilds = True
 def create_bot():
     return commands.Bot(command_prefix="!", intents=intents)
 
-bot = create_bot()
-
 # 2. 🔥 [!오늘의캬옹] / [!오캬] 명령어 등록 함수
 def setup_commands(bot_obj):
+    @bot_obj.event
+    async def on_ready():
+        print(f"🤖 캬옹 일정 관리 봇 로그인 완료: {bot_obj.user.name}")
+
     @bot_obj.command(name="오늘의캬옹", aliases=["오캬"])
     async def today_schedule(ctx):
         FORUM_CHANNEL_ID = 1467848861681979476  # 실제 일정 포럼 채널 ID
@@ -99,51 +101,42 @@ app = Flask('')
 def home():
     return "Bot is running!"
 
-# 4. Rate Limit (429) 대기 후 깨끗한 세션으로 재시도하는 함수
+# 4. 안전하게 봇을 시작하고 429 차단 시 재시도하는 비동기 메인 함수
+async def start_bot_async(token):
+    bot_obj = create_bot()
+    setup_commands(bot_obj)
+
+    try:
+        print("🚀 디스코드 봇 로그인 시도 중...")
+        await bot_obj.start(token)
+    except discord.errors.HTTPException as e:
+        if e.status == 429:
+            retry_after = getattr(e, 'retry_after', 60)
+            wait_time = int(retry_after) + 5
+            print(f"⚠️ 디스코드 API 차단(429 Rate Limit) 발생. {wait_time}초 후 재시도합니다...")
+            await bot_obj.close()
+            await asyncio.sleep(wait_time)
+        else:
+            print(f"❌ HTTP 오류 발생: {e}")
+            await bot_obj.close()
+    except Exception as e:
+        print(f"❌ 봇 중단 오류: {e}")
+        await bot_obj.close()
+
+# 백그라운드 스레드용 동기 워커
 def run_bot():
-    global bot
     TOKEN = os.getenv('DISCORD_TOKEN')
     if not TOKEN:
         print("❌ 에러: DISCORD_TOKEN 환경 변수가 없습니다.")
         return
 
     while True:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        # 봇 인스턴스 새로 생성 및 명령어 재등록
-        bot = create_bot()
-
-        @bot.event
-        async def on_ready():
-            print(f"🤖 캬옹 일정 관리 봇 로그인 완료: {bot.user.name}")
-
-        setup_commands(bot)
-
         try:
-            print("🚀 디스코드 봇 로그인 시도 중...")
-            loop.run_until_complete(bot.start(TOKEN))
-        except discord.errors.HTTPException as e:
-            if e.status == 429:
-                retry_after = getattr(e, 'retry_after', 60)
-                wait_time = int(retry_after) + 5
-                print(f"⚠️ 디스코드 API 차단(429 Rate Limit) 발생. {wait_time}초 후 완전히 재시도합니다...")
-
-                # 기존 세션 정리
-                try:
-                    loop.run_until_complete(bot.close())
-                except Exception:
-                    pass
-                loop.close()
-
-                time.sleep(wait_time)
-            else:
-                print(f"❌ HTTP 오류 발생: {e}")
-                break
+            asyncio.run(start_bot_async(TOKEN))
         except Exception as e:
-            print(f"❌ 봇 비정상 중단: {e}")
-            break
+            print(f"❌ 루프 실행 오류: {e}")
+            time.sleep(10)
 
-# 5. Gunicorn 부팅과 함께 스레드 즉시 구동
+# 5. Gunicorn 부팅과 함께 스레드 시작
 t = Thread(target=run_bot, daemon=True)
 t.start()
