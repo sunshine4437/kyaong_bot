@@ -5,25 +5,22 @@ from discord.ext import commands
 from aiohttp import web
 from dotenv import load_dotenv
 
-# .env 파일 로드 (로컬 테스트용)
 load_dotenv()
 
-# 1. 봇 권한 세팅
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 
-# 2. 🔥 [!오늘의캬옹] / [!오캬] 명령어 등록 함수
 def setup_bot():
     bot_obj = commands.Bot(command_prefix="!", intents=intents)
 
     @bot_obj.event
     async def on_ready():
-        print(f"🤖 캬옹 일정 관리 봇 로그인 완료: {bot_obj.user.name}")
+        print(f"🤖 캬옹 일정 관리 봇 로그인 완료: {bot_obj.user.name}", flush=True)
 
     @bot_obj.command(name="오늘의캬옹", aliases=["오캬"])
     async def today_schedule(ctx):
-        FORUM_CHANNEL_ID = 1467848861681979476  # 실제 일정 포럼 채널 ID
+        FORUM_CHANNEL_ID = 1467848861681979476
 
         try:
             channel = await ctx.bot.fetch_channel(FORUM_CHANNEL_ID)
@@ -93,7 +90,6 @@ def setup_bot():
 
     return bot_obj
 
-# 3. 비동기 웹 서버 (Render 헬스체크용 aiohttp)
 async def handle_ping(request):
     return web.Response(text="Bot is running!")
 
@@ -105,36 +101,33 @@ async def start_web_server():
     port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"🌐 웹 서버가 포트 {port}에서 정상 시작되었습니다.")
+    print(f"🌐 웹 서버가 포트 {port}에서 정상 시작되었습니다.", flush=True)
 
-# 4. 세션 자원 관리가 적용된 메인 루프
 async def main():
     TOKEN = os.getenv('DISCORD_TOKEN')
     if not TOKEN:
-        print("❌ 에러: DISCORD_TOKEN 환경 변수가 없습니다.")
+        print("❌ 에러: DISCORD_TOKEN 환경 변수가 없습니다.", flush=True)
         return
 
-    # 웹 서버 구동
     await start_web_server()
 
-    # 디스코드 봇 로그인 및 자동 재시도 루프
     while True:
         bot = setup_bot()
         try:
-            print("🚀 디스코드 봇 로그인 시도 중...")
+            print("🚀 디스코드 봇 로그인 시도 중...", flush=True)
             async with bot:
                 await bot.start(TOKEN)
         except discord.errors.HTTPException as e:
             if e.status == 429:
                 retry_after = getattr(e, 'retry_after', 60)
                 wait_time = int(retry_after) + 5
-                print(f"⚠️ 디스코드 API 차단(429 Rate Limit) 발생. {wait_time}초 후 재시도합니다...")
+                print(f"⚠️ 디스코드 API 차단(429 Rate Limit) 발생. {wait_time}초 후 재시도합니다...", flush=True)
                 await asyncio.sleep(wait_time)
             else:
-                print(f"❌ HTTP 오류 발생: {e}")
+                print(f"❌ HTTP 오류 발생: {e}", flush=True)
                 await asyncio.sleep(10)
         except Exception as e:
-            print(f"❌ 봇 비정상 중단: {e}")
+            print(f"❌ 봇 비정상 중단: {e}", flush=True)
             await asyncio.sleep(10)
 
 if __name__ == "__main__":
