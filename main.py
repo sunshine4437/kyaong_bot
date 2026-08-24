@@ -44,7 +44,7 @@ async def today_schedule(ctx):
     try:
         threads_list = list(channel.threads)
         active_threads_response = await ctx.guild.active_threads()
-        
+
         if hasattr(active_threads_response, 'threads'):
             raw_threads = active_threads_response.threads
         else:
@@ -53,7 +53,7 @@ async def today_schedule(ctx):
         for thread in raw_threads:
             if thread.parent_id == FORUM_CHANNEL_ID and thread not in threads_list:
                 threads_list.append(thread)
-                
+
     except Exception as e:
         await ctx.send(f"❌ 포럼 채널의 게시글 목록을 불러오지 못했습니다. (원인: {e})")
         return
@@ -97,32 +97,17 @@ app = Flask('')
 def home():
     return "Bot is running!"
 
-# 4. 🛠️ Gunicorn 워커 생명주기에 종속되지 않는 무적의 구동 함수
-def start_discord_loop():
+# 4. 백그라운드에서 디스코드 봇 구동하는 함수
+def run_bot():
     TOKEN = os.getenv('DISCORD_TOKEN')
     if not TOKEN:
         print("❌ 에러: DISCORD_TOKEN 환경 변수가 없습니다.")
         return
 
-    # 완전히 격리된 새 이벤트 루프를 생성하여 스레드 독립성을 확보합니다.
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
-    print("🚀 독립 스레드에서 디스코드 봇 로그인 시도 중...")
-    try:
-        loop.run_until_complete(bot.start(TOKEN))
-    except Exception as e:
-        print(f"❌ 봇 시작 실패: {e}")
+    loop.run_until_complete(bot.start(TOKEN))
 
-# 5. Flask 웹 요청 세션이 최초 활성화될 때 딱 한 번만 스레드를 실행하는 장치
-# (Gunicorn이 포트 감지 후 재부팅해도 중복 실행되지 않고 안전하게 살아남습니다.)
-is_bot_started = False
-
-@app.before_request
-def initialize_bot_process():
-    global is_bot_started
-    if not is_bot_started:
-        is_bot_started = True
-        # 백그라운드가 아닌 별도 프로세스 스레드로 구동하여 메인 루프 차단을 우회합니다.
-        t = Thread(target=start_discord_loop, daemon=True)
-        t.start()
+# 5. Gunicorn 실행 시 백그라운드 스레드로 봇 즉시 시작
+t = Thread(target=run_bot, daemon=True)
+t.start()
