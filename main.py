@@ -101,14 +101,19 @@ app = Flask('')
 def home():
     return "Bot is running!"
 
-# 4. 안전하게 봇을 시작하고 429 차단 시 재시도하는 비동기 메인 함수
+# 4. 타임아웃 및 429 차단 처리가 강화된 비동기 로그인 함수
 async def start_bot_async(token):
     bot_obj = create_bot()
     setup_commands(bot_obj)
 
     try:
         print("🚀 디스코드 봇 로그인 시도 중...")
-        await bot_obj.start(token)
+        # 30초 동안 응답이 없으면 TimeoutError 발생
+        await asyncio.wait_for(bot_obj.start(token), timeout=30.0)
+    except asyncio.TimeoutError:
+        print("⚠️ 로그인 시도 타임아웃(30초 초과). 디스코드 응답 없음 - 60초 후 재시도합니다...")
+        await bot_obj.close()
+        await asyncio.sleep(60)
     except discord.errors.HTTPException as e:
         if e.status == 429:
             retry_after = getattr(e, 'retry_after', 60)
