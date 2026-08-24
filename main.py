@@ -114,7 +114,6 @@ def run_bot():
             loop.run_until_complete(bot.start(TOKEN))
         except discord.errors.HTTPException as e:
             if e.status == 429:
-                # 디스코드 API에서 응답한 대기 시간(retry_after)이 있으면 사용하고, 없으면 60초 대기
                 retry_after = getattr(e, 'retry_after', 60)
                 wait_time = int(retry_after) + 5
                 print(f"⚠️ 디스코드 API 차단(429 Rate Limit) 발생. {wait_time}초 후 재시도합니다...")
@@ -126,6 +125,6 @@ def run_bot():
             print(f"❌ 봇 비정상 중단: {e}")
             break
 
-# 5. Gunicorn 실행 시 백그라운드 스레드로 봇 시작
+# 5. Gunicorn 부팅과 함께 스레드 즉시 구동
 t = Thread(target=run_bot, daemon=True)
 t.start()
