@@ -1,5 +1,6 @@
 import os
 import asyncio
+import time
 import discord
 from discord.ext import commands
 from flask import Flask
@@ -97,7 +98,7 @@ app = Flask('')
 def home():
     return "Bot is running!"
 
-# 4. 백그라운드에서 디스코드 봇 구동하는 함수
+# 4. Rate Limit (429) 자동 대기 및 재시도 로직이 포함된 구동 함수
 def run_bot():
     TOKEN = os.getenv('DISCORD_TOKEN')
     if not TOKEN:
@@ -106,8 +107,25 @@ def run_bot():
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(bot.start(TOKEN))
 
-# 5. Gunicorn 실행 시 백그라운드 스레드로 봇 즉시 시작
+    while True:
+        try:
+            print("🚀 디스코드 봇 로그인 시도 중...")
+            loop.run_until_complete(bot.start(TOKEN))
+        except discord.errors.HTTPException as e:
+            if e.status == 429:
+                # 디스코드 API에서 응답한 대기 시간(retry_after)이 있으면 사용하고, 없으면 60초 대기
+                retry_after = getattr(e, 'retry_after', 60)
+                wait_time = int(retry_after) + 5
+                print(f"⚠️ 디스코드 API 차단(429 Rate Limit) 발생. {wait_time}초 후 재시도합니다...")
+                time.sleep(wait_time)
+            else:
+                print(f"❌ HTTP 오류 발생: {e}")
+                break
+        except Exception as e:
+            print(f"❌ 봇 비정상 중단: {e}")
+            break
+
+# 5. Gunicorn 실행 시 백그라운드 스레드로 봇 시작
 t = Thread(target=run_bot, daemon=True)
 t.start()
