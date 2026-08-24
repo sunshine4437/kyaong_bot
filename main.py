@@ -1,10 +1,8 @@
 import os
 import asyncio
-import time
 import discord
 from discord.ext import commands
-from flask import Flask
-from threading import Thread
+from aiohttp import web
 from dotenv import load_dotenv
 
 # .env 파일 로드 (로컬 테스트용)
@@ -15,70 +13,68 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 
-def create_bot():
-    return commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-# 2. 🔥 [!오늘의캬옹] / [!오캬] 명령어 등록 함수
-def setup_commands(bot_obj):
-    @bot_obj.event
-    async def on_ready():
-        print(f"🤖 캬옹 일정 관리 봇 로그인 완료: {bot_obj.user.name}")
+@bot.event
+async def on_ready():
+    print(f"🤖 캬옹 일정 관리 봇 로그인 완료: {bot.user.name}")
 
-    @bot_obj.command(name="오늘의캬옹", aliases=["오캬"])
-    async def today_schedule(ctx):
-        FORUM_CHANNEL_ID = 1467848861681979476  # 실제 일정 포럼 채널 ID
+# 2. 🔥 [!오늘의캬옹] / [!오캬] 명령어
+@bot.command(name="오늘의캬옹", aliases=["오캬"])
+async def today_schedule(ctx):
+    FORUM_CHANNEL_ID = 1467848861681979476  # 실제 일정 포럼 채널 ID
 
-        try:
-            channel = await ctx.bot.fetch_channel(FORUM_CHANNEL_ID)
-        except discord.NotFound:
-            await ctx.send("❌ 지정된 채널 ID를 찾을 수 없습니다.")
-            return
-        except discord.Forbidden:
-            await ctx.send("❌ 봇이 해당 채널을 볼 수 있는 권한이 없습니다.")
-            return
+    try:
+        channel = await bot.fetch_channel(FORUM_CHANNEL_ID)
+    except discord.NotFound:
+        await ctx.send("❌ 지정된 채널 ID를 찾을 수 없습니다.")
+        return
+    except discord.Forbidden:
+        await ctx.send("❌ 봇이 해당 채널을 볼 수 있는 권한이 없습니다.")
+        return
 
-        if not isinstance(channel, discord.ForumChannel):
-            await ctx.send("❌ 지정된 채널 ID가 포럼 채널이 아닙니다.")
-            return
+    if not isinstance(channel, discord.ForumChannel):
+        await ctx.send("❌ 지정된 채널 ID가 포럼 채널이 아닙니다.")
+        return
 
-        schedule_list = []
-        apply_list = []
-        try_list = []
+    schedule_list = []
+    apply_list = []
+    try_list = []
 
-        try:
-            threads_list = list(channel.threads)
-            active_threads_response = await ctx.guild.active_threads()
+    try:
+        threads_list = list(channel.threads)
+        active_threads_response = await ctx.guild.active_threads()
 
-            if hasattr(active_threads_response, 'threads'):
-                raw_threads = active_threads_response.threads
-            else:
-                raw_threads = active_threads_response
+        if hasattr(active_threads_response, 'threads'):
+            raw_threads = active_threads_response.threads
+        else:
+            raw_threads = active_threads_response
 
-            for thread in raw_threads:
-                if thread.parent_id == FORUM_CHANNEL_ID and thread not in threads_list:
-                    threads_list.append(thread)
+        for thread in raw_threads:
+            if thread.parent_id == FORUM_CHANNEL_ID and thread not in threads_list:
+                threads_list.append(thread)
 
-        except Exception as e:
-            await ctx.send(f"❌ 포럼 채널의 게시글 목록을 불러오지 못했습니다. (원인: {e})")
-            return
+    except Exception as e:
+        await ctx.send(f"❌ 포럼 채널의 게시글 목록을 불러오지 못했습니다. (원인: {e})")
+        return
 
-        sorted_threads = sorted(threads_list, key=lambda t: t.name)
+    sorted_threads = sorted(threads_list, key=lambda t: t.name)
 
-        for thread in sorted_threads:
-            clean_name = thread.name.replace(" ", "").lower()
+    for thread in sorted_threads:
+        clean_name = thread.name.replace(" ", "").lower()
 
-            if "[캬옹][상시모집]" in clean_name:
-                apply_list.append(f"<#{thread.id}>")
-            elif "[캬옹]" in clean_name and "트라이" in clean_name:
-                try_list.append(f"<#{thread.id}>")
-            elif "완" not in clean_name and "마감" not in clean_name:
-                schedule_list.append(f"<#{thread.id}>")
+        if "[캬옹][상시모집]" in clean_name:
+            apply_list.append(f"<#{thread.id}>")
+        elif "[캬옹]" in clean_name and "트라이" in clean_name:
+            try_list.append(f"<#{thread.id}>")
+        elif "완" not in clean_name and "마감" not in clean_name:
+            schedule_list.append(f"<#{thread.id}>")
 
-        schedules = "\n".join(schedule_list) if schedule_list else "ㆍ 진행 중인 일정이 없습니다."
-        applies = "\n".join(apply_list) if apply_list else "ㆍ 신청 중인 일정이 없습니다."
-        tries = "\n".join(try_list) if try_list else "ㆍ 진행 중인 트라이가 없습니다."
+    schedules = "\n".join(schedule_list) if schedule_list else "ㆍ 진행 중인 일정이 없습니다."
+    applies = "\n".join(apply_list) if apply_list else "ㆍ 신청 중인 일정이 없습니다."
+    tries = "\n".join(try_list) if try_list else "ㆍ 진행 중인 트라이가 없습니다."
 
-        response = f"""**<오늘의 캬옹>**
+    response = f"""**<오늘의 캬옹>**
 
 <:aeromancer_3:1534374208002461766> **일정**
 {schedules}
@@ -92,56 +88,49 @@ def setup_commands(bot_obj):
 다들 많관부! <#1467848861681979476> 사용은 자유롭게! 양식무관! 누구나!
 문의사항은 연락주세요 <:artist_3:1534374268132135053>"""
 
-        await ctx.send(response)
+    await ctx.send(response)
 
-# 3. 웹 서버 설정 (Render 24시간 호스팅용 웹 서버)
-app = Flask('')
+# 3. 비동기 웹 서버 (Render 헬스체크용 aiohttp)
+async def handle_ping(request):
+    return web.Response(text="Bot is running!")
 
-@app.route('/')
-def home():
-    return "Bot is running!"
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"🌐 웹 서버가 포트 {port}에서 정상 시작되었습니다.")
 
-# 4. 타임아웃 및 429 차단 처리가 강화된 비동기 로그인 함수
-async def start_bot_async(token):
-    bot_obj = create_bot()
-    setup_commands(bot_obj)
-
-    try:
-        print("🚀 디스코드 봇 로그인 시도 중...")
-        # 30초 동안 응답이 없으면 TimeoutError 발생
-        await asyncio.wait_for(bot_obj.start(token), timeout=30.0)
-    except asyncio.TimeoutError:
-        print("⚠️ 로그인 시도 타임아웃(30초 초과). 디스코드 응답 없음 - 60초 후 재시도합니다...")
-        await bot_obj.close()
-        await asyncio.sleep(60)
-    except discord.errors.HTTPException as e:
-        if e.status == 429:
-            retry_after = getattr(e, 'retry_after', 60)
-            wait_time = int(retry_after) + 5
-            print(f"⚠️ 디스코드 API 차단(429 Rate Limit) 발생. {wait_time}초 후 재시도합니다...")
-            await bot_obj.close()
-            await asyncio.sleep(wait_time)
-        else:
-            print(f"❌ HTTP 오류 발생: {e}")
-            await bot_obj.close()
-    except Exception as e:
-        print(f"❌ 봇 중단 오류: {e}")
-        await bot_obj.close()
-
-# 백그라운드 스레드용 동기 워커
-def run_bot():
+# 4. 단일 비동기 루프 실행 (웹 서버 + 디스코드 봇)
+async def main():
     TOKEN = os.getenv('DISCORD_TOKEN')
     if not TOKEN:
         print("❌ 에러: DISCORD_TOKEN 환경 변수가 없습니다.")
         return
 
+    # 웹 서버 먼저 구동
+    await start_web_server()
+
+    # 디스코드 봇 로그인 및 자동 재시도 루프
     while True:
         try:
-            asyncio.run(start_bot_async(TOKEN))
+            print("🚀 디스코드 봇 로그인 시도 중...")
+            await bot.start(TOKEN)
+        except discord.errors.HTTPException as e:
+            if e.status == 429:
+                retry_after = getattr(e, 'retry_after', 60)
+                wait_time = int(retry_after) + 5
+                print(f"⚠️ 디스코드 API 차단(429 Rate Limit) 발생. {wait_time}초 후 재시도합니다...")
+                await asyncio.sleep(wait_time)
+            else:
+                print(f"❌ HTTP 오류 발생: {e}")
+                await asyncio.sleep(10)
         except Exception as e:
-            print(f"❌ 루프 실행 오류: {e}")
-            time.sleep(10)
+            print(f"❌ 봇 비정상 중단: {e}")
+            await asyncio.sleep(10)
 
-# 5. Gunicorn 부팅과 함께 스레드 시작
-t = Thread(target=run_bot, daemon=True)
-t.start()
+if __name__ == "__main__":
+    asyncio.run(main())
